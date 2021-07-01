@@ -1,34 +1,81 @@
+autowatch = 1
 function ToggleExtInstruments(enable) {
 	log("toggling ext instruments");
-	iterate(enable);
+	evaluateSet(enable);
 	log("completed");
 }
 
-function iterate(enable) {
+function evaluateSet(enable) {
 	var apiSet = new LiveAPI("live_set");
 	var trackCount = apiSet.getcount("tracks");
 	for (var i = 0; i < trackCount; ++i) {
-		var apiTrack = new LiveAPI(buildPath(i));
-		var deviceCount = apiTrack.getcount("devices");
-		for (var j = 0; j < deviceCount; ++j) {
-			var apiDevice = new LiveAPI(buildPath(i, j));
-			var deviceType = apiDevice.get("type");
-			if (deviceType != 1) continue; // 1 = instrument
-
-			var deviceClassName = apiDevice.get("class_name");
-			if (deviceClassName != "ProxyInstrumentDevice") continue;
-
-			var parameterCount = apiDevice.getcount("parameters");
-			for (var k = 0; k < parameterCount; ++k) {
-				var apiParameter = new LiveAPI(buildPath(i, j, k));
-				var parameterName = apiParameter.get("name");
-				if (parameterName != "Device On") continue;
-
-				if (enable) apiParameter.set("value", 1);
-				else apiParameter.set("value", 0);
-			}
-		}
+		var apiTrack = getAPI(apiSet, "tracks", i);
+		evaluateTrack(apiTrack, enable);
 	}
+}
+
+function evaluateTrack(apiTrack, enable) {
+	var deviceCount = apiTrack.getcount("devices");
+	for (var j = 0; j < deviceCount; ++j) {
+		var apiDevice = getAPI(apiTrack, "devices", j);
+		evaluateDevice(apiDevice, enable);
+	}
+}
+
+function evaluateChain(apiChain, enable) {
+	var deviceCount = apiChain.getcount("devices");
+	for (var j = 0; j < deviceCount; ++j) {
+		var apiDevice = getAPI(apiChain, "devices", j);
+		evaluateDevice(apiDevice, enable);
+	}
+}
+
+function evaluateDevice(apiDevice, enable) {
+	var canChain = apiDevice.get("can_have_chains");
+	if (canChain == 1) {
+		var chainCount = apiDevice.getcount("chains");
+		for (var i = 0; i < chainCount; ++i) {
+			var apiChain = getAPI(apiDevice, "chains", i);
+			evaluateChain(apiChain, enable);
+		}
+		return;
+	}
+
+	var deviceType = apiDevice.get("type");
+	if (deviceType != 1) return; // 1 = instrument
+
+	var deviceClassName = apiDevice.get("class_name");
+	if (deviceClassName != "ProxyInstrumentDevice") return;
+
+	var parameterCount = apiDevice.getcount("parameters");
+	for (var i = 0; i < parameterCount; ++i) {
+		var apiParameter = getAPI(apiDevice, "parameters", i);
+		evaluateParameter(apiParameter, enable);
+	}
+}
+
+function evaluateParameter(apiParameter, enable) {
+	var parameterName = apiParameter.get("name");
+	if (parameterName != "Device On") return;
+
+	if (enable) {
+		log("enabled", apiParameter.path)
+		apiParameter.set("value", 1);
+	}
+	else {
+		log("disabled", apiParameter.path)
+		apiParameter.set("value", 0);
+	}
+}
+
+function getAPI(currentApi, property, id) {
+	var currentPath = dequote(currentApi.path);
+	var path = currentPath + " " + property + " " + id;
+	return new LiveAPI(path);
+}
+
+function dequote(path) {
+	return path.replace(/"/g, "")
 }
 
 function buildPath() {
@@ -43,7 +90,6 @@ function buildPath() {
 		path += " parameters " + arguments[2];
 	}
 
-	log(path);
 	return path;
 }
 
